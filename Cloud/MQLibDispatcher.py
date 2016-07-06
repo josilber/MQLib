@@ -3,6 +3,7 @@ import csv
 import multiprocessing
 import os
 import paramiko
+import random
 import subprocess
 import sys
 import time
@@ -139,18 +140,15 @@ def split_graphs(tags):
     # load from s3.
     if sys.argv[1] == "FULL":
         try:
-            runtime_file = "../data/runtimes.csv"
-            reader = csv.reader(open(runtime_file, "rU"))
-            header = reader.next()
-            if header != ["graphname", "runtime"]:
-                print "Incorrect header on", runtime_file
-                exit(1)
-            all_graphs = [(float(x[1]), x[0]) for x in reader]
-            all_graphs = sorted(all_graphs, reverse=True)  # Sort decreasing
+            instance_file = "../data/instances.txt"
+            all_graphs = [x.strip() for x in open(instance_file, "rU")]
+            # Reproducibly shuffle the graphs to distribute the workload
+            random.seed(144)
+            random.shuffle(all_graphs)
+            print "Loaded", len(all_graphs), "instances from", instance_file
         except Exception as e:
-            print "You need to create a", runtime_file, "file with one"
-            print "  graph per line for a full run. Please do so and re-run"
-            print "  with the 'nocreate' option."
+            print "You need to create a", instance_file, "file with one"
+            print "  graph per line for a full run."
             exit(1)
     elif sys.argv[1] == "METRICS" and os.path.exists("metric_files.txt"):
         all_graphs = sorted([x.strip() for x in open("metric_files.txt", "rU")])
@@ -191,12 +189,8 @@ def dispatch_and_run(tags,cmds,mach_graphs,verbose=True):
         if verbose: print " %s"%tag
 
         with open("/tmp/GRAPH_FILE_%s"%tag,"w") as fp:
-            if sys.argv[1] == "FULL":
-                for (runtime, g) in mach_graphs[tag]:
-                    fp.write(g + " " + str(runtime) + "\n")
-            else:
-                for g in mach_graphs[tag]:
-                    fp.write(g + "\n")
+            for g in mach_graphs[tag]:
+                fp.write(g + "\n")
 
         f = cmds[tag].open_sftp()
         f.put("/tmp/GRAPH_FILE_%s"%tag, "MQLib/Cloud/GRAPH_FILE")
@@ -204,7 +198,11 @@ def dispatch_and_run(tags,cmds,mach_graphs,verbose=True):
             f.put("../data/heuristics.txt", "MQLib/Cloud/HEUR_FILE")
         f.close()
 
-        cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py " + sys.argv[1] + " " + tag + " &> screen_output.txt &")
+        if sys.argv[1] == "FULL":
+            cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py FULL " + tag + " " + sys.argv[4] + " " + sys.argv[5] + " &> screen_output.txt &")
+        else:
+            cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py " + sys.argv[1] + " " + tag + " &> screen_output.txt &")
+
     if verbose: print "\n  Computation started on all machines"
 
 def run_dispatch():
@@ -212,8 +210,8 @@ def run_dispatch():
     Setup machines, run jobs, monitor, then tear them down again.
     """
 
-    if len(sys.argv) < 4 or not sys.argv[1] in ["METRICS", "FULL"] or not sys.argv[2].isdigit() or sys.argv[3].find(".git") < 0:
-        print "Usage: python MQLibDispatcher.py METRICS|FULL #NODE http://link/to/git/repo.git [nocreate] [nodispatch] [verbose]"
+    if len(sys.argv) < 4 or not sys.argv[1] in ["METRICS", "FULL"] or not sys.argv[2].isdigit() or sys.argv[3].find(".git") < 0 or (sys.argv[1] == "FULL" and (len(sys.argv) < 6 or not sys.argv[4].isdigit() or not all([x.isdigit() for x in sys.argv[5].split("_")]))):
+        print "Usage:\n  python MQLibDispatcher.py METRICS #NODE http://link/to/git/repo.git [nocreate] [nodispatch] [verbose]\n    [[or]]\n  python MQLibDispatcher.py FULL #NODE http://link/to/git/repo.git #ITERFORBASELINE SEEDS_SEPARATED_BY_UNDERSCORES [nocreate] [nodispatch] [verbose]"
         exit(1)
     NUM_MACHINES     = int(sys.argv[2])
     tags = ["mqlibtest%d"%i for i in range(NUM_MACHINES)]
@@ -235,16 +233,19 @@ def run_dispatch():
         print "Please run this script from the Cloud directory."
         exit(1)
     if sys.argv[1] == "FULL":
-        runtime_file = "../data/runtimes.csv"
-        if not os.path.exists(runtime_file):
-            print "You need to create a", runtime_file, "file with one"
-            print "  graph per line for a full run."
+        instance_file = "../data/instances.txt"
+        if not os.path.exists(instance_file):
+            print "You need to create a", instance_file, "file with one"
+            print "  instance per line for a full run."
             exit(1)
         heuristic_file = "../data/heuristics.txt"
         if not os.path.exists(heuristic_file):
             print "You need to create a", heuristic_file, "file with one"
             print "  heuristic to be tested per line."
             exit(1)
+
+    # Split up graphs between the machines.
+    mach_graphs = split_graphs(tags)
 
     # Setup security group and key pair (these are no-ops if done before)
     CloudSetup.create_security_group()
@@ -264,9 +265,6 @@ def run_dispatch():
     # Set them up (if desired)
     if CREATE_MACH: setup_instances(tags,cmds,VERBOSE)
         
-    # Split up graphs between the machines.
-    mach_graphs = split_graphs(tags)
-
     # Send out jobs and start machines working (if desired)
     if DISPATCH_AND_RUN: dispatch_and_run(tags,cmds,mach_graphs,VERBOSE)
 
