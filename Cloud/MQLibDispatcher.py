@@ -199,7 +199,7 @@ def dispatch_and_run(tags,cmds,mach_graphs,verbose=True):
         f.close()
 
         if sys.argv[1] == "FULL":
-            cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py FULL " + tag + " " + sys.argv[4] + " " + sys.argv[5] + " &> screen_output.txt &")
+            cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py FULL " + tag + " " + sys.argv[4] + " " + sys.argv[5] + " " + sys.argv[6] + " " + sys.argv[7] + " &> screen_output.txt &")
         else:
             cmds[tag]._ssh_client.exec_command("cd MQLib/Cloud; nohup python MQLibMaster.py " + sys.argv[1] + " " + tag + " &> screen_output.txt &")
 
@@ -210,8 +210,8 @@ def run_dispatch():
     Setup machines, run jobs, monitor, then tear them down again.
     """
 
-    if len(sys.argv) < 4 or not sys.argv[1] in ["METRICS", "FULL"] or not sys.argv[2].isdigit() or sys.argv[3].find(".git") < 0 or (sys.argv[1] == "FULL" and (len(sys.argv) < 6 or not sys.argv[4].isdigit() or not all([x.isdigit() for x in sys.argv[5].split("_")]))):
-        print "Usage:\n  python MQLibDispatcher.py METRICS #NODE http://link/to/git/repo.git [nocreate] [nodispatch] [verbose]\n    [[or]]\n  python MQLibDispatcher.py FULL #NODE http://link/to/git/repo.git #ITERFORBASELINE SEEDS_SEPARATED_BY_UNDERSCORES [nocreate] [nodispatch] [verbose]"
+    if len(sys.argv) < 4 or not sys.argv[1] in ["METRICS", "FULL"] or not sys.argv[2].isdigit() or sys.argv[3].find(".git") < 0 or (sys.argv[1] == "FULL" and (len(sys.argv) < 8 or not sys.argv[4].isdigit() or not all([x.isdigit() for x in sys.argv[5].split("_")]) or not sys.argv[6].lstrip("-").isdigit() or not sys.argv[7].lstrip("-").isdigit())):
+        print "Usage:\n  python MQLibDispatcher.py METRICS #NODE http://link/to/git/repo.git [nocreate] [nodispatch] [verbose]\n    [[or]]\n  python MQLibDispatcher.py FULL #NODE http://link/to/git/repo.git #ITERFORBASELINE SEEDS_SEPARATED_BY_UNDERSCORES MINSECONDS MAXSECONDS [nocreate] [nodispatch] [verbose]"
         exit(1)
     NUM_MACHINES     = int(sys.argv[2])
     tags = ["mqlibtest%d"%i for i in range(NUM_MACHINES)]

@@ -52,8 +52,8 @@ def run_tasks():
     """
 
     # Validate command-line arguments
-    if not (sys.argv[1] == "METRICS" and len(sys.argv) == 3) and not (sys.argv[1] == "FULL" and len(sys.argv) == 5 and sys.argv[3].isdigit() and all([x.isdigit() for x in sys.argv[4].split("_")])):
-        print "Usage:\n  python MQLibRunner.py METRICS tag\n    [[or]]\n  python MQLibRunner.py FULL tag #ITERFORBASELINE SEEDS_SEPARATED_BY_UNDERSCORES"
+    if not (sys.argv[1] == "METRICS" and len(sys.argv) == 3) and not (sys.argv[1] == "FULL" and len(sys.argv) == 7 and sys.argv[3].isdigit() and all([x.isdigit() for x in sys.argv[4].split("_")]) and sys.argv[5].lstrip("-").isdigit() and sys.argv[6].lstrip("-").isdigit()):
+        print "Usage:\n  python MQLibRunner.py METRICS tag\n    [[or]]\n  python MQLibRunner.py FULL tag #ITERFORBASELINE SEEDS_SEPARATED_BY_UNDERSCORES MINSECONDS MAXSECONDS"
         exit(1)
     if sys.argv[1] == "METRICS":
         SDB_DOMAIN = "mqlib-metrics"
@@ -104,6 +104,11 @@ def run_tasks():
                                  stderr=subprocess.STDOUT)
             baseline_output = p.stdout.read()
             runtime = baseline_output.split(",")[4]
+
+            if int(sys.argv[5]) >= 0:
+                runtime = str(max(int(sys.argv[5]), float(runtime)))
+            if int(sys.argv[6]) >= 0:
+                runtime = str(min(int(sys.argv[6]), float(runtime)))
 
             print "******** Baseline run:***"
             print baseline_output
