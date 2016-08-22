@@ -34,6 +34,17 @@ def chunks(l, n):
         n = 1
     return [l[i:i + n] for i in range(0, len(l), n)]
 
+def filterOutput(output, consec, ending):
+    """
+    Filter the output of a heuristic by only reporting every "consec" new best solution,
+    as well as the last "ending" solutions.
+    """
+    intro = output.split("[")[0]
+    toFilter = output.strip().split("[")[1][:-1].split(";")
+    filterIdx = range(0, len(toFilter)-ending, consec) + range(len(toFilter)-ending, len(toFilter))
+    filtered = [toFilter[x] for x in filterIdx]
+    return intro + "[" + ";".join(filtered) + "]"
+
 def run_tasks():
     """
     Run all the tasks allocated to this worker.
@@ -157,6 +168,16 @@ def run_tasks():
                     # 1000-character chunks and add each chunk as attributes
                     # output000, output001, ...
                     parts = chunks(mqlib_output, 1000)
+
+                    # If the output is too large, filter the solutions to take
+                    # every "consec" reported value, as well as the last 10.
+                    # Keep increasing "consec" until the output is of acceptable
+                    # size (aka won't cause an error when loaded into the SimpleDB).
+                    consec = 1
+                    while len(parts) >= 55:
+                        consec += 1
+                        parts = chunks(filterOutput(mqlib_output, consec, 10), 1000)
+
                     for num in range(len(parts)):
                         attr = "output" + str(num).zfill(3)
                         value[attr] = parts[num]
