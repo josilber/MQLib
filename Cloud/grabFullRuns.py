@@ -1,7 +1,12 @@
 # python grabFullRuns.py
 import csv
 import os
+import sys
 import CloudSetup
+
+if len(sys.argv) != 2 or not sys.argv[1] in ["ALL", "BEST"]:
+    print "Usage: python grabFullRuns.py ALL|BEST"
+    exit(1)
 
 suffixes = [""] + [str(x) for x in range(1, 10000)]
 resultsFile = None
@@ -21,13 +26,18 @@ sdb, dom = CloudSetup.setup_sdb_domain("mqlib-domain2")
 rs = dom.select('select * from `mqlib-domain2`')
 dat = {}  # graphname -> output
 writer = csv.writer(open(resultsFile, "w"))
-writer.writerow(["timestamp", "graphname", "heuristic", "limit", "objective",
-                 "runtime"])
+if sys.argv[1] == "ALL":
+    writer.writerow(["timestamp", "graphname", "heuristic", "seed", "limit", "objective",
+                     "runtime"])
+else:
+    writer.writerow(["timestamp", "graphname", "heuristic", "seed", "limit", "objective"])
+
 errorOut = open(errorsFile, "w")
 for result in rs:
     graphname = result["graphname"].strip()
     heuristic = result["heuristic"].strip()
     timestamp = result["timestamp"].strip()
+    seed = result["run"].strip()
     output = ""
     for idx in range(1000):
         key = "output" + str(idx).zfill(3)
@@ -44,7 +54,10 @@ for result in rs:
     if start < 0 or end < 0 or start >= end-1:
         # Error in output; just report the solution of 0 at 0 seconds and log
         # to the errors file.
-        writer.writerow([timestamp, graphname, heuristic, "-1", "0", "0"])
+        if sys.argv[1] == "ALL":
+            writer.writerow([timestamp, graphname, heuristic, seed, "-1", "0", "0"])
+        else:
+            writer.writerow([timestamp, graphname, heuristic, seed, "-1", "0"])
         errorOut.write("************ Oddly formatted heuristic output for " +
                        graphname + " (" + heuristic + ")\n")
         errorOut.write("timestamp: " + timestamp + "\n")
@@ -52,6 +65,7 @@ for result in rs:
     else:
         limit = output.split(",")[0]
         part = output[(start+1):end]
+        bestObjective = "0"
         for piece in part.split(";"):
             obj = piece.split(":")[0]
             rt = piece.split(":")[1]
@@ -59,4 +73,9 @@ for result in rs:
                 rt = "0"  # We know solution 0 from the very beginning
             if float(rt) > float(limit):
                 continue  # We don't process results after RT limit
-            writer.writerow([timestamp, graphname, heuristic, limit, obj, rt])
+            if sys.argv[1] == "ALL":
+                writer.writerow([timestamp, graphname, heuristic, seed, limit, obj, rt])
+            elif float(obj) > float(bestObjective):
+                bestObjective = obj
+        if sys.argv[1] == "BEST":
+            writer.writerow([timestamp, graphname, heuristic, seed, limit, bestObjective])
