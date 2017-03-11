@@ -4,6 +4,7 @@
 # on graphs of specified sizes, outputting the memory usage.
 
 import csv
+import platform
 import random
 import subprocess
 import sys
@@ -66,12 +67,23 @@ for size in [int(x) for x in sys.argv[2:]]:
 
     for graphName, runtime in runs:
         for heuristic in heuristics:
-            torun = ['/usr/bin/time', '-l', '../bin/MQLib', '-fM',
-                     graphName, '-h', heuristic, '-r', runtime, '-s', '144']
-            p = subprocess.Popen(torun, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT)
-            baseline_output = p.stdout.read()
-            for q in baseline_output.split("\n"):
-                if q.find("maximum resident set size") >= 0:
-                    writer.writerow([heuristic, graphName, size, runtime,
-                                     q.strip().split()[0]])
+            if platform.system() == 'Darwin':
+                torun = ['/usr/bin/time', '-l', '../bin/MQLib', '-fM',
+                         graphName, '-h', heuristic, '-r', runtime, '-s', '144']
+                p = subprocess.Popen(torun, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT)
+                baseline_output = p.stdout.read()
+                for q in baseline_output.split("\n"):
+                    if q.find("maximum resident set size") >= 0:
+                        writer.writerow([heuristic, graphName, size, runtime,
+                                         q.strip().split()[0]])
+            else:
+                torun = ['/usr/bin/time', '-v', '../bin/MQLib', '-fM',
+                         graphName, '-h', heuristic, '-r', runtime, '-s', '144']
+                p = subprocess.Popen(torun, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT)
+                baseline_output = p.stdout.read()
+                for q in baseline_output.split("\n"):
+                    if q.find("Maximum resident set size (kbytes):") >= 0:
+                        writer.writerow([heuristic, graphName, size, runtime,
+                                         q.strip().split()[5]])

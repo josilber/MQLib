@@ -11,7 +11,7 @@ import boto.sdb
 SSH_FOLDER = os.path.expanduser("~/.ssh/")
 INST_TYPE  = "m3.medium"
 AWS_REGION = "us-east-1"  # US East (Virginia)
-AMI_NAME   = "ami-767a391e"    # US East (Virginia) Ubuntu 14.04 LTS (HVM)
+AMI_NAME   = "ami-20389b36"    # US East (Virginia) Ubuntu 14.04 LTS (HVM)
 
 def create_keypair(key_name="mqlibtest"):
     """
