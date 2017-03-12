@@ -45,7 +45,7 @@ def getRuntimeLimit(graphName):
 
 ##############################
 ##############################
-maxCompleteGraphSize = 1000
+maxCompleteGraphSize = 3000
 if len(sys.argv) < 3 or not all([x.isdigit() for x in sys.argv[2:]]):
     print 'Usage: python scaling.py heuristics.txt n1 n2 n3 ...'
     exit(0)
