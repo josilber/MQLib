@@ -1252,3 +1252,44 @@ res.MEM <- res.class %>%
 nnplot(log10(exp(res.MEM$log_n)), log10(exp(res.MEM$log_m)), as.numeric(res.MEM$Memory=="Yes"),
        400, "nn_mem.png", k=20, rad=1, xlab="Number of Nodes", ylab="Number of Edges", title="Tabu Search")
 #-------------------------------------------------------------------------------
+
+################################################################################
+# Appendix C: Scaling analysis
+# Here, we plot the scaling analysis for sparse and dense graphs.
+#-------------------------------------------------------------------------------
+# Load up the memory scaling data
+scaling <- read.csv("../data/scaling.csv")
+
+# Plot the scaling for the complete graph case
+scaling.complete <- scaling %>%
+  filter(graph == "complete.txt") %>%
+  mutate(heurPlot = ifelse(heuristic == "PALUBECKIS2004bMST5", "PAL04T5", "Other"))
+ggplot(scaling.complete, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10(name="Number of Nodes", breaks=c(10, 30, 100, 300, 1000, 3000)) +
+  scale_y_log10(name="Memory Usage (MB)") +
+  scale_color_manual(name="Heuristic", values=c("PAL04T5"="red", "Other"="black")) +
+  theme_bw(base_size=9)
+
+# Plot the scaling for the sparse graph case
+scaling.sparse <- scaling %>%
+  filter(graph == "ER.txt") %>%
+  mutate(heurPlot = ifelse(heuristic == "LAGUNA2009CE", "LAG09CE",
+                    ifelse(heuristic == "LAGUNA2009HCE", "LAG09HCE",
+                    ifelse(heuristic == "PARDALOS2008", "PAR08",
+                    ifelse(heuristic == "BEASLEY1998SA", "BEA98SA", "Other")))))
+ggplot(scaling.sparse, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
+  geom_point() +
+  geom_line() +
+  scale_x_log10(name="Number of Nodes", breaks=c(10, 30, 100, 300, 1000, 3000, 10000, 30000)) +
+  scale_y_log10(name="Memory Usage (MB)") +
+  scale_color_manual(name="Heuristic", values=c("LAG09CE"="red", "LAG09HCE"="green",
+                                                "PAR08"="blue", "BEA98SA"="purple",
+                                                "Other"="black")) +
+  theme_bw(base_size=9)
+
+
+
+
+
