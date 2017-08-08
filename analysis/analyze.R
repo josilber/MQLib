@@ -98,7 +98,7 @@ heuristics <- initial.heuristics
 #-------------------------------------------------------------------------------
 # Evaluation results
 # The file ../data/results1.csv contains all the results for the 37 heuristics
-# tested in the original paper, for TODO instances.
+# tested in the original paper, for 3,296 instances.
 # It has columns `timestamp`, `graphname`, `heuristic`, `seed`, `limit`,
 # and `objective`, with one row per heuristic run containing the best
 # solution found within the runtime limit.
@@ -454,7 +454,8 @@ exp.summary <- int.results %>%
             pctbest     = mean(achievedBest) * 100,
             worstdev    = mean(worstDev) * 100,
             meandev     = mean(averageDev) * 100,
-            bestdev     = mean(bestDev) * 100) %>%
+            bestdev     = mean(bestDev) * 100,
+            avgrank     = mean(rank)) %>%
   arrange(desc(firstequal), desc(firststrict), meandev)
 exp.pretty.summary <- exp.summary %>%
   mutate(heuristic = heuristics$abbreviation[match(heuristic, heuristics$heuristic)])
@@ -471,10 +472,12 @@ merge.final <- int.results %>%
   group_by(heuristic) %>%
   summarize(firstequal  = mean(rank == 1) * 100,
             firststrict = mean(rank2 == 1) * 100,
-            meandev     = mean(averageDev) * 100) %>%
+            meandev     = mean(averageDev) * 100,
+            avgrank     = mean(rank)) %>%
   left_join(exp.summary, by="heuristic", suffix=c(".std", ".exp")) %>%
   select(heuristic, firstequal.std, firstequal.exp, firststrict.std,
-         firststrict.exp, meandev.std, meandev.exp) %>%
+         firststrict.exp, meandev.std, meandev.exp, avgrank.std,
+         avgrank.exp) %>%
   mutate_if(is.numeric, funs("rank"=rank(-.))) %>%
   arrange(desc(firstequal.std))
 p <-
@@ -511,6 +514,19 @@ p = ggplot(merge.final, aes(x=meandev.std, y=meandev.exp)) +
   # , labels = trans_format("log10", math_format(10^.x))) +
   theme_bw(base_size=9)
 ggsave(filename="meandev_stdvsexp.pdf", plot=p, width=3, height=3, units="in")
+p
+#-------------------------------------------------------------------------------
+# Figure 7: MEAN-RANK (breaks and limits have been hand-selected and may need
+#           to be adjusted based on new results)
+p = ggplot(merge.final, aes(x=avgrank.std, y=avgrank.exp)) + 
+  geom_abline(slope=1,color="gray") + scale_linetype_identity() +
+  geom_point(size=2) +
+  scale_x_continuous(name="Average rank, standard instance lib.", limits=c(1, 37)) +
+  # , labels = trans_format("log10", math_format(10^.x))) +
+  scale_y_continuous(name="Average rank, expanded instance lib.", limits=c(1, 37)) +
+  # , labels = trans_format("log10", math_format(10^.x))) +
+  theme_bw(base_size=9)
+ggsave(filename="avgrank_stdvsexp.pdf", plot=p, width=3, height=3, units="in")
 p
 #-------------------------------------------------------------------------------
 print(paste("0 first-strict on standard but positive on expanded:",
@@ -556,6 +572,11 @@ if (!dir.exists("fittedTrees")) {
   dir.create("fittedTrees")
 }
 source("storeRF.R")
+
+# Set this to true if you want to load cached versions instead of re-running the
+# cross-validation
+load.cached <- TRUE
+
 # Iterate over every heuristic
 hh.raw.result.list <- lapply(split(results.for.hh, results.for.hh$heuristic), function(df){
   print(df$heuristic[1])
@@ -586,23 +607,32 @@ hh.raw.result.list <- lapply(split(results.for.hh, results.for.hh$heuristic), fu
   
   # RANDOM FOREST
   set.seed(144)
-  rf.train <- train(X.train, y.train, method="rf",
-                    trControl=trainControl(method="cv",number=5))
-  # Save the best forest
-  store.rf(rf.train$finalModel, paste0("fittedTrees/", df$heuristic[1],".rf"))
-  saveRDS(rf.train$finalModel, paste0("fittedTrees/", df$heuristic[1],".rds"))
+  if (load.cached && file.exists(paste0("fittedTrees/", df$heuristic[1],".rds"))) {
+    cvResults <- NULL
+    finalModel <- readRDS(paste0("fittedTrees/", df$heuristic[1],".rds"))
+  } else {
+    rf.train <- train(X.train, y.train, method="rf",
+                      trControl=trainControl(method="cv",number=5))
+    finalModel <- rf.train$finalModel
+    cvResults <- rf.train$results
+    # Save the best forest
+    store.rf(finalModel, paste0("fittedTrees/", df$heuristic[1],".rf"))
+    saveRDS(finalModel, paste0("fittedTrees/", df$heuristic[1],".rds"))
+  }
   
   # Store training-set predictions
   pred.train <- data.frame(heuristic = df$heuristic[1],
                            graphname = df$graphname[train.rows],
-                           pred      = predict(rf.train$finalModel, newdata=X.train, "prob"),
+                           pred      = predict(finalModel, newdata=X.train, "prob"),
                            y         = y.train)
   
   # EVALUATION ON TEST SET
-  pred <- predict(rf.train$finalModel, newdata=X.test, "prob")
-  print(paste("Acc train  rf:", max(rf.train$results$Accuracy)))
+  pred <- predict(finalModel, newdata=X.test, "prob")
+  if (!is.null(cvResults)) {
+    print(paste("Acc train  rf:", max(rf.train$results$Accuracy)))
+  }
   print(paste("Acc test base:", max(table(y.test))/length(y.test)))
-  print(paste("Acc test   rf:", confusionMatrix(predict(rf.train$finalModel, newdata=X.test), y.test)$overall[1]))
+  print(paste("Acc test   rf:", confusionMatrix(predict(finalModel, newdata=X.test), y.test)$overall[1]))
   pred.test <- data.frame(heuristic = df$heuristic[1],
                           graphname = df$graphname[-train.rows],
                           pred      = pred,  # Actually pred.0 and pred.1
@@ -610,12 +640,12 @@ hh.raw.result.list <- lapply(split(results.for.hh, results.for.hh$heuristic), fu
   
   # Evaluation on image segmentation instances
   pred.imgseg <- data.frame(graphname = imgseg.graphs,
-                            pred      = predict(rf.train$finalModel, newdata=X.imgseg,
+                            pred      = predict(finalModel, newdata=X.imgseg,
                                                 type="prob")[,"1"],
                             heuristic = df$heuristic[1])
   
   # Variable importance
-  imp <- importance(rf.train$finalModel)
+  imp <- importance(finalModel)
   imp <- data.frame(variable         = row.names(imp),
                     MeanDecreaseGini = imp,
                     heuristic        = df$heuristic[1])
@@ -849,7 +879,7 @@ p <- ggplot(top.N.results, aes(x=k, y=pctBest, linetype=type)) +
   geom_point() +
   scale_linetype_discrete(guide=FALSE) +
   scale_x_discrete("Number of heuristics selected",breaks=seq(1,8)) +
-  scale_y_continuous("Percentage First Equal") +
+  scale_y_continuous("Mean Chance of Returning Best Solution (%)") +
   theme_bw(base_size=9)
 ggsave(filename="hh_vs_base_top8_fe.pdf", plot=p, width=3, height=3, units="in")
 p
@@ -858,7 +888,7 @@ p <- ggplot(top.N.results, aes(x=k, y=expectedDev, linetype=type)) +
   geom_point() +
   scale_linetype_discrete(guide=FALSE) +
   scale_x_discrete("Number of heuristics selected",breaks=seq(1,8)) +
-  scale_y_continuous("Mean deviation (%)") +
+  scale_y_continuous("Mean Expected Deviation (%)") +
   theme_bw(base_size=9)
 ggsave(filename="hh_vs_base_top8_dev.pdf", plot=p, width=3, height=3, units="in")
 p
@@ -967,17 +997,17 @@ results.diff <- int.results %>%
 
 # For each heuristic, compute a simple CART tree predicting instance
 # difficulty, returning summary information.
-heuristic.names <- sort(unique(results.diff$heuristic))
+heuristic.names <- sort(unique(int.results$heuristic))
 if (!dir.exists("treeOutput")) {
   dir.create("treeOutput")
 }
 tree.info <- do.call(rbind, lapply(heuristic.names, function(heur) {
   # Fit a CART tree predicting the normalized deviation using all metrics
-  res.sng <- results.diff %>%
+  res.sng <- int.results %>%
     filter(heuristic == heur) %>%
-    select(graphname, normdev) %>%
+    select(graphname, rank) %>%
     left_join(red.metrics, by="graphname")
-  mod <- rpart(normdev ~ . - graphname, data=res.sng, minbucket=100,
+  mod <- rpart(rank ~ . - graphname, data=res.sng, minbucket=100,
                maxdepth = 3)
 
   # In this section we will be extracting information from CART trees 
@@ -1013,8 +1043,8 @@ tree.info <- do.call(rbind, lapply(heuristic.names, function(heur) {
   }
   
   # Tree R^2
-  SSE <- sum((predict(mod) - res.sng$normdev)^2)
-  SST <- sum((mean(res.sng$normdev) - res.sng$normdev)^2)
+  SSE <- sum((predict(mod) - res.sng$rank)^2)
+  SST <- sum((mean(res.sng$rank) - res.sng$rank)^2)
 
   # Tree (manually drawn in paper)
   pdf(paste0("treeOutput/tree_", heur, ".pdf"), width=4, height=3)
@@ -1101,9 +1131,9 @@ tree.info <- do.call(rbind, lapply(heuristic.names, function(heur) {
     bounds(row, split.info, mins, maxes)["upper"]
   })
 
-  # TODO: Fit to 0-10 in all cases
-  p <- ggplot(res.sng, aes_string(x=var1,y=var2,color="normdev")) +
-         scale_color_continuous(guide=FALSE, low="blue", high="red") +
+  p <- ggplot(res.sng, aes_string(x=var1,y=var2,color="rank")) +
+         scale_color_continuous(guide=FALSE, low="blue", high="red",
+                                limits=range(int.results$rank)) +
          geom_point(size=1) +
          theme_bw(base_size=9)
   for (row in seq_len(nrow(split.info))) {
@@ -1264,31 +1294,34 @@ scaling <- read.csv("../data/scaling.csv")
 scaling.complete <- scaling %>%
   filter(graph == "complete.txt") %>%
   mutate(heurPlot = ifelse(heuristic == "PALUBECKIS2004bMST5", "PAL04T5", "Other"))
-ggplot(scaling.complete, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
+p <- ggplot(scaling.complete, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
   geom_point() +
   geom_line() +
   scale_x_log10(name="Number of Nodes", breaks=c(10, 30, 100, 300, 1000, 3000)) +
   scale_y_log10(name="Memory Usage (MB)") +
   scale_color_manual(name="Heuristic", values=c("PAL04T5"="red", "Other"="black")) +
-  theme_bw(base_size=9)
+  theme_bw(base_size=9) + 
+  theme(legend.position=c(0, 1.043), legend.justification=c(0, 1))
+ggsave(filename="scalingDense.pdf", plot=p, width=3, height=3, units="in")
+p
 
 # Plot the scaling for the sparse graph case
 scaling.sparse <- scaling %>%
   filter(graph == "ER.txt") %>%
   mutate(heurPlot = ifelse(heuristic == "LAGUNA2009CE", "LAG09CE",
                     ifelse(heuristic == "LAGUNA2009HCE", "LAG09HCE",
-                    ifelse(heuristic == "PARDALOS2008", "PAR08",
-                    ifelse(heuristic == "BEASLEY1998SA", "BEA98SA", "Other")))))
-ggplot(scaling.sparse, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
+                    ifelse(heuristic == "PARDALOS2008", "PAR08", "Other"))))
+p <- ggplot(scaling.sparse, aes(x=size, y=memusg/1024, group=heuristic, color=heurPlot)) +
   geom_point() +
   geom_line() +
   scale_x_log10(name="Number of Nodes", breaks=c(10, 30, 100, 300, 1000, 3000, 10000, 30000)) +
   scale_y_log10(name="Memory Usage (MB)") +
-  scale_color_manual(name="Heuristic", values=c("LAG09CE"="red", "LAG09HCE"="green",
-                                                "PAR08"="blue", "BEA98SA"="purple",
-                                                "Other"="black")) +
-  theme_bw(base_size=9)
-
+  scale_color_manual(name="Heuristic", values=c("LAG09CE"="red", "LAG09HCE"="purple",
+                                                "PAR08"="blue", "Other"="black")) +
+  theme_bw(base_size=9) + 
+  theme(legend.position=c(0, 1.043), legend.justification=c(0, 1))
+ggsave(filename="scalingSparse.pdf", plot=p, width=3, height=3, units="in")
+p
 
 
 
